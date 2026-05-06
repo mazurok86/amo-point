@@ -1,25 +1,16 @@
 # AmoPoint — тестовое задание PHP-разработчика
 
-Реализация тестового задания на позицию PHP-разработчика. Состав:
+Реализованы все три задания из ТЗ:
 
-1. **Команда `jokes:fetch`** раз в 5 минут забирает шутку с `https://official-joke-api.appspot.com/random_joke` и сохраняет в БД. Endpoint **`GET /api/jokes`** отдаёт записи в JSON.
-2. **`testlist.js`** — JS-решение для страницы `https://test.amopoint-dev.ru/testzz/testlist.html`: при смене значения `<select name="type_val">` остаются видимыми только поля, в `name` которых содержится выбранное значение.
-3. **Счётчик посещений** (бонус) — JS-коллектор + Laravel-бэкенд + страница статистики с графиками под авторизацией. _В работе._
+1. **Команда `jokes:fetch`** + **`GET /api/jokes`** — каждые 5 минут забирает шутку с official-joke-api, отдаёт массив записей в JSON.
+2. **`public/testzz/testlist.js`** — JS-сниппет под `https://test.amopoint-dev.ru/testzz/testlist.html`.
+3. **Счётчик посещений** (бонус) — JS-коллектор `public/track.js` + `POST /api/visits` + дашборд `/stats` с графиками под Breeze auth.
 
-Подробный план, разбор алгоритмов и отвергнутые альтернативы — в [`docs/test-task/`](docs/test-task/PLAN.md).
-
----
+Алгоритмы решений и разбор отвергнутых альтернатив — в [`docs/test-task/`](docs/test-task/PLAN.md).
 
 ## Стек
 
-- **Laravel 13.7**, PHP **^8.3**
-- **MySQL** для приложения (БД `amo_point`)
-- (для бонуса будет добавлена **SQLite** под аналитику посещений)
-- **Breeze** (Blade-стек) — авторизация
-- Tailwind v4 + Alpine.js, сборка через Vite
-- Тесты: PHPUnit (SQLite `:memory:`), стиль: Laravel Pint
-
----
+Laravel 13 (PHP 8.3+) · Breeze (Blade) · MySQL · Tailwind v4 · Vite · PHPUnit · Pint.
 
 ## Развёртывание
 
@@ -28,180 +19,62 @@
 ```bash
 git clone git@github.com:mazurok86/amo-point.git
 cd amo-point
-
-# 1. БД: создать MySQL-схему
 mysql -uroot -e 'CREATE DATABASE amo_point CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'
-
-# 2. .env (правьте DB_* при необходимости)
 cp .env.example .env
-
-# 3. Установка + ключ + миграции + сборка фронта
-composer setup
+composer setup    # install + key:generate + migrate + npm build
+composer dev      # serve + queue + pail + vite → http://127.0.0.1:8000
 ```
 
-`composer setup` — agregate-скрипт из `composer.json`, эквивалент:
-`composer install` → `cp .env.example .env` → `php artisan key:generate` → `php artisan migrate --force` → `npm install` → `npm run build`.
-
-### Запуск dev-окружения
-
-Один процесс — поднимает сервер, очередь, лог-тейл и Vite параллельно:
-```bash
-composer dev
-```
-По умолчанию слушает `http://127.0.0.1:8000`.
-
-Раздельно:
-```bash
-php artisan serve              # http://127.0.0.1:8000
-php artisan schedule:work      # запуск планировщика (для задания 1)
-php artisan queue:listen
-php artisan pail               # тейл логов
-npm run dev                    # Vite HMR
-```
-
-### Альтернатива: nginx vhost
-
-В `nginx/servers/` лежит конфиг для `amo-point.local`. Если используете — добавьте `127.0.0.1 amo-point.local` в `/etc/hosts` и проект будет доступен по `http://amo-point.local`.
-
----
+Опционально nginx-vhost для `amo-point.local` — конфиг в `nginx/servers/amo-point.conf`.
 
 ## Проверка ТЗ
 
-### Задание 1 — `jokes:fetch` + `GET /api/jokes`
+### Задание 1 — JSON API
 
-**Запуск по расписанию** (раз в 5 минут):
 ```bash
-php artisan schedule:work
-```
-В prod достаточно одной строки в системном `cron`:
-```
-* * * * * cd /path/to/project && php artisan schedule:run >> /dev/null 2>&1
-```
-
-Зарегистрированный джоб виден через:
-```bash
-php artisan schedule:list
-# → */5 * * * *  php artisan jokes:fetch
-```
-
-**Одноразовый запуск** (без ожидания планировщика):
-```bash
-php artisan jokes:fetch
-# → "Saved joke #<id>"
-```
-
-**JSON-роут**:
-```bash
+php artisan jokes:fetch                      # одноразовый запуск
+php artisan schedule:work                    # планировщик (каждые 5 мин)
 curl http://127.0.0.1:8000/api/jokes
-# Ответ:
-# {
-#   "data": [{ "id": 1, "external_id": 42, "type": "...", "setup": "...", "punchline": "...", "fetched_at": "..." }, ...],
-#   "links": { ... },
-#   "meta": { "current_page": 1, "per_page": 50, "total": N }
-# }
-```
-Поддерживается `?per_page=N` (1..100, по умолчанию 50).
-
-Тесты этой части:
-```bash
-php artisan test --filter='Jokes|FetchJokes'
 ```
 
-### Задание 2 — `testlist.js`
+Поддерживается `?per_page=N` (1..100, default 50).
 
-Деливерабл — единственный файл [`public/testzz/testlist.js`](public/testzz/testlist.js). Работает в обеих формах поставки из ТЗ:
+### Задание 2 — testlist.js
 
-**Способ A — подключаемый файл**
-```html
-<script src="testlist.js"></script>
-```
-IIFE, без зависимостей, ничего не выкатывает в `window`. Работает что в `<head>` (через `DOMContentLoaded`), что перед `</body>` (через проверку `document.readyState`).
+`public/testzz/testlist.js` работает в обеих формах поставки из ТЗ:
 
-**Способ B — сниппет в DevTools Console**
-1. Открыть `https://test.amopoint-dev.ru/testzz/testlist.html`.
-2. F12 → вкладка **Console**.
-3. Скопировать **весь** контент `public/testzz/testlist.js`.
-4. Вставить, Enter.
+- **подключаемый файл**: `<script src="testlist.js">` (можно в `<head>` или перед `</body>`);
+- **сниппет в DevTools Console**: открыть боевую страницу, F12 → Console, вставить весь файл, Enter.
 
-После вставки скрипт стартует немедленно (DOM уже готов), навешивает делегированный listener `change` на `document` и применяет видимость по текущему значению select. Меняйте «Тип» — пересчёт мгновенный.
-
-> Chrome при первой вставке кода в Console может потребовать набрать «allow pasting».
-
-**Локальное зеркало** для проверки без выхода на внешний хост: `public/testzz/testlist.html` (откройте по `http://amo-point.local/testzz/testlist.html` или скопируйте файл куда удобно). Зеркало повторяет реальную разметку и **не часть деливерабла**.
-
-Алгоритм и список отвергнутых альтернатив — в [`docs/test-task/02-dynamic-fields.md`](docs/test-task/02-dynamic-fields.md).
+Локальное зеркало для проверки без выхода на внешний хост: `http://amo-point.local/testzz/testlist.html` (byte-identical с боевой за исключением одного добавленного `<script src="testlist.js">`).
 
 ### Задание 3 — счётчик посещений
 
-Готов целиком: бэкенд приёма (3a), JS-коллектор (3b) и страница статистики (3c).
-
-**Backend — `POST /api/visits`** принимает данные от JS-коллектора, парсит User-Agent через `jenssegers/agent` (`device`/`browser`/`os`), извлекает `host` из `page_url`, берёт `ip` из `$request->ip()`, пишет запись в таблицу `visits` (та же MySQL, что и приложение). На валидационные ошибки отвечает JSON 422 (через `shouldRenderJsonWhen` в `bootstrap/app.php`).
-
-CORS открыт на `api/*` (дефолт Laravel), JS-коллектор POST-ит с произвольного origin без preflight (`URLSearchParams`-body — CORS-safelisted content type).
-
-**Rate limit:** на роут навешен `throttle:60,1` — не более 60 запросов в минуту с одного IP. Это первая дешёвая защита для открытого ingest-endpoint от ботов / зацикленного коллектора / простого DoS. Не панацея (атакующий ротирует IP), но поднимает планку. 60/мин выбрано как Laravel-дефолт для `api`-группы — для легитимного трафика более чем достаточно (живой пользователь редко открывает >60 страниц в минуту), для NAT крупных офисов лимит можно поднять.
-
-**Frontend — [`public/track.js`](public/track.js)**: drop-in tracker.
+**Подключение `track.js` на произвольном сайте:**
 
 ```html
 <script async src="https://your-host/track.js"></script>
 ```
 
-- IIFE, ноль зависимостей, всё в `try/catch` — ошибка в трекере не валит хост-страницу.
-- Endpoint резолвится автоматически из `<script src>` через `document.currentScript` → `<origin>/api/visits`. Не нужен `data-endpoint` атрибут или ручная конфигурация.
-- `visitor_uid` — UUID v4 в `localStorage` (`crypto.randomUUID()` + `Math.random()`-fallback для совсем старых браузеров). Ключ `__amo_visit_uid`. Если localStorage недоступен (private mode / отключён) — на сервере fallback `md5(ip + ua + час)`.
-- Отправка: `navigator.sendBeacon(...)` → fallback `fetch({keepalive: true})`. Тело — `URLSearchParams` (form-encoded, CORS-safe).
-- HTTPS обязателен в проде: если хост-сайт на `https://`, а ваш бэкенд на `http://` — браузер заблокирует mixed-content.
+Drop-in: ноль зависимостей, ноль конфигурации. Endpoint резолвится автоматически из `<script src>` через `document.currentScript` → `<origin>/api/visits`. На каждый pageload отправляется один POST с `visitor_uid` (UUID v4 в `localStorage`), `page_url`, `referrer`, `user_agent`. IP, host и парсинг UA — на сервере.
 
-**Локальная проверка**: откройте [`http://amo-point.local/track-demo.html`](public/track-demo.html). Эта страница подключает `track.js`, в DevTools → Network должен пройти `POST /api/visits` со статусом 204. Демо-страница не часть деливерабла, только для smoke-теста.
+В проде хостьте `track.js` по **HTTPS** — иначе браузер на HTTPS-странице-доноре заблокирует mixed-content.
 
-**Страница статистики `/stats`** — за Breeze auth middleware. **Это и есть посадочная страница после login/register** — стандартный Breeze-овский `/dashboard` удалён, в верхней навигации единственный пункт «Stats» (плюс справа user-dropdown с Profile / Log Out — это user-меню, его Breeze всегда показывает отдельно).
+**Локальный smoke-тест:** `http://amo-point.local/track-demo.html` — страница с подключённым `track.js`. В DevTools → Network должен пройти `POST /api/visits` 204.
 
-Чтобы увидеть:
-1. Зарегистрироваться через UI (`/register`) — Breeze, без подтверждения email. После сабмита автоматически попадёте на `/stats`.
-2. Засеять демо-данные:
-   ```bash
-   php artisan db:seed --class=DemoVisitsSeeder   # ~200 визитов с разными городами/устройствами
-   ```
-3. Перезагрузить `/stats` (например, `http://amo-point.local/stats`).
-
-На странице — фильтр `date` + `host`, bar chart «уникальные визиты по часам» (полная 24-часовая ось), pie chart «top-10 городов», счётчики total/unique. Графики через Chart.js по CDN (без `npm i`).
-
-**Уникальность визита** — `COUNT(DISTINCT visitor_uid)`, повторные заходы того же UID в течение часа считаются один раз. Если клиент не прислал UID (приватный режим / отключённый localStorage) — на сервере fallback `md5(ip + ua + час)`, чтобы визит всё равно учёлся.
-
-**Real visits → city = null** (geo-резолвинг отложили в future scope, см. секцию «Geo» в [`03-visit-counter.md`](docs/test-task/03-visit-counter.md)). Pie chart на live-данных будет пустой — поэтому есть `DemoVisitsSeeder` с разнообразными городами для демонстрации.
-
-Тесты:
-```bash
-php artisan test --filter='Visits|Stats'
-```
-
-Полное проектное описание (схема, альтернативы): [`docs/test-task/03-visit-counter.md`](docs/test-task/03-visit-counter.md).
-
----
-
-## Тесты, стиль
+**Дашборд `/stats`** — посадочная страница после login/register (заменяет дефолтный Breeze-овский `/dashboard`). Чтобы увидеть с данными:
 
 ```bash
-php artisan test                       # вся сьюита (SQLite :memory:, не трогает MySQL)
-./vendor/bin/pint --test               # проверка стиля
-./vendor/bin/pint                      # автофикс стиля
+php artisan db:seed --class=DemoVisitsSeeder   # ~200 демо-визитов
 ```
 
----
+затем зарегистрироваться через `/register` (без подтверждения email) — страница откроется с графиками (bar по часам, pie по городам).
 
-## Структура
+## Тесты и стиль
 
-| Путь | Что |
-|------|-----|
-| `app/Console/Commands/FetchJokes.php` | Команда `jokes:fetch` |
-| `app/Models/Joke.php` | Модель шутки |
-| `app/Http/Controllers/Api/JokeController.php` | Контроллер `/api/jokes` |
-| `app/Http/Resources/JokeResource.php` | JSON-ресурс |
-| `routes/api.php` | API-роуты |
-| `bootstrap/app.php` | Регистрация расписания и роутов |
-| `public/testzz/testlist.js` | JS-решение задания 2 |
-| `public/testzz/testlist.html` | Локальное зеркало целевой страницы |
-| `docs/test-task/` | План реализации, разбор алгоритмов |
+```bash
+php artisan test            # вся сьюита (SQLite :memory:)
+./vendor/bin/pint --test    # проверка стиля; pint без флага — автофикс
+```
 
-Для агентов и доп. контекста по проекту см. [`CLAUDE.md`](CLAUDE.md).
+См. [`CLAUDE.md`](CLAUDE.md) для контекста проекта.

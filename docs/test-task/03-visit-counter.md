@@ -1,70 +1,21 @@
-# Этап 3 (бонус) — Счётчик посещений
+# Задание 3 (бонус) — Счётчик посещений
 
 ## Архитектура
 
-Два компонента:
-1. **JS-коллектор** — `<script async src="/track.js">` подключается к произвольному сайту, собирает данные и отправляет на наш бэкенд.
-2. **Бэкенд** — приём, обогащение (UA-парсинг), хранение в основной MySQL проекта, страница статистики под Breeze auth.
+1. **JS-коллектор** `public/track.js` — `<script async>` подключается к произвольному сайту, отправляет визит на наш endpoint.
+2. **Backend** — приём, обогащение (UA-парсинг), хранение в основной MySQL проекта (та же БД, что и `users` / `jokes` — ТЗ дословно: «БД(sqllite или другой на выбор)»).
+3. **Дашборд** `/stats` — Blade-страница под Breeze auth с двумя графиками (Chart.js по CDN).
 
-## Хранилище
-
-Таблица `visits` живёт в **основной MySQL** проекта (та же БД, что и `users`/`jokes`). ТЗ дословно: «БД(sqllite или другой на выбор)» — MySQL разрешена явно.
-
-Раньше планировали отдельное sqlite-соединение «для изоляции», но для тестового это **умозрительная польза** ценой реальных накладных (отдельный конфиг, env-переменная, файл в `.gitignore`, multi-connection танцы в RefreshDatabase). Симметричнее с `jokes`, проще для проверяющего: поднял MySQL — всё работает.
-
-Тесты — sqlite `:memory:` для всего (как в `phpunit.xml` с самого начала).
-
-## Geo
-
-Резолвинг IP → город сейчас **НЕ реализован**. Колонки `country`/`city` в схеме сохранены — этого требует ТЗ («собирать город» + «pie chart по городам»). Для реальных визитов значения `null`. Для демо страницы статистики — `DemoVisitsSeeder` заполняет визиты разными городами.
-
-**Почему отложили:** на localhost (`request->ip() === '127.0.0.1'`) внешний резолвер всё равно отдаёт null. Стоимость интеграции в проде — отдельная задача (см. альтернативы внизу). Не блокирует ни приёмку данных, ни UI статистики — резолвер позже подменяется одной сервис-биндой без правки контроллера.
-
-## Файлы (полный список)
-
-```
-public/track.js                                       # JS-коллектор (3b)
-public/track-demo.html                                # локальная страница для smoke-теста (3b, не часть деливерабла)
-app/Models/Visit.php                                  # 3a
-app/Http/Controllers/Api/VisitController.php          # POST /api/visits (3a)
-app/Http/Controllers/StatsController.php              # GET /stats (3c)
-app/Http/Requests/StoreVisitRequest.php               # 3a
-app/Services/UserAgentParser.php                      # обёртка над jenssegers/agent (3a)
-database/migrations/..._create_visits_table.php       # 3a
-database/factories/VisitFactory.php                   # 3a
-database/seeders/DemoVisitsSeeder.php                 # 3a
-resources/views/stats/index.blade.php                 # 3c
-routes/web.php                                        # /stats (auth) — edit (3c)
-routes/api.php                                        # POST /api/visits — edit (3a)
-bootstrap/app.php                                     # shouldRenderJsonWhen для api/* — edit (3a)
-tests/Feature/Visits/StoreVisitTest.php               # 3a
-tests/Feature/Visits/StatsPageTest.php                # 3c
-```
-
-Зависимости (composer):
-- `jenssegers/agent` — UA parser (auto-discovery, без manual service-provider).
-
-JS:
-- Chart.js — через CDN на странице `/stats`. Без зависимости в `package.json`.
-
-## План на 3 коммита
-
-| Шаг | Что | Статус |
-|---|---|---|
-| **3a** | Бэкенд приёма: миграция `visits`, модель/фабрика, `StoreVisitRequest`, `UserAgentParser`, `VisitController`, `POST /api/visits` с throttle, `DemoVisitsSeeder`, тесты | ✅ ef86f6d |
-| **3b** | JS-коллектор `public/track.js` (sendBeacon + URLSearchParams + UUID v4 в localStorage + try/catch) + `track-demo.html` для smoke-теста | ✅ |
-| **3c** | Страница `/stats` под auth: `StatsController`, Blade с двумя `<canvas>`, Chart.js по CDN, тесты | ✅ |
-
-## Миграция `visits`
+## Схема `visits`
 
 | поле | тип | заметка |
-|------|-----|---------|
+|---|---|---|
 | id | bigIncrements | |
-| host | string(255), index | хост из `page_url`, для multi-site фильтрации |
+| host | string(255), index | хост из `page_url` для multi-site фильтрации |
 | visitor_uid | string(36), index | UUID v4 из localStorage; fallback на сервере если не пришёл |
 | ip | string(45) | поддержка IPv6 |
-| country | string(2), nullable | _не заполняется в текущей итерации; задел_ |
-| city | string(120), nullable | _не заполняется (real); сидер использует разные города для демо_ |
+| country | string(2), nullable | _не заполняется (см. Geo)_ |
+| city | string(120), nullable | _не заполняется (см. Geo); сидер использует разные города_ |
 | device | string(20), nullable | desktop / tablet / mobile / bot |
 | browser | string(50), nullable | |
 | os | string(50), nullable | |
@@ -72,134 +23,64 @@ JS:
 | referrer | text, nullable | |
 | created_at | timestamp, index | для часовой группировки |
 
-`updated_at` не нужен — события неизменяемы. Миграция: `$table->timestamp('created_at')->index()`, без `timestamps()`. На модели `public const UPDATED_AT = null` — Eloquent сам управляет `created_at`.
+`updated_at` не нужен — события неизменяемы. На модели `public const UPDATED_AT = null` — Eloquent сам управляет `created_at`.
 
 ## JS-коллектор `public/track.js`
 
-Подключение: `<script async src="https://our-host/track.js"></script>`. «Drop-in», без зависимостей.
+`<script async src="https://your-host/track.js">`. Drop-in, без зависимостей.
 
-**Endpoint резолвится автоматически** — из `<script src>`-атрибута собственного тега через `document.currentScript`, с fallback по поиску `<script src*=track.js>`. Получается `<script-origin>/api/visits` без необходимости в `data-endpoint` или ручной конфигурации.
+**Endpoint резолвится автоматически** из собственного `<script src>` через `document.currentScript` (с fallback по поиску `<script src*=track.js>`) → `<script-origin>/api/visits`. Без `data-endpoint` или ручной конфигурации.
 
-Собирает:
-- `visitor_uid` — UUID v4 в `localStorage` (ключ `__amo_visit_uid`, создаётся при первом заходе). Генератор: `crypto.randomUUID()` для современных браузеров, `Math.random()`-fallback для старых.
-- `page_url` — `location.href`.
-- `referrer` — `document.referrer` (опускается если пусто).
-- `user_agent` — `navigator.userAgent`.
+Собирает: `visitor_uid` (UUID v4 в `localStorage`, ключ `__amo_visit_uid`; `crypto.randomUUID()` + Math.random fallback), `page_url`, `referrer`, `user_agent`. **IP** берётся на сервере из `$request->ip()`.
 
-Что **не** собираем на клиенте:
-- **IP** — берётся на сервере из `$request->ip()`.
+Отправка: `navigator.sendBeacon(url, URLSearchParams)` — form-encoded body, **CORS-safelisted → preflight OPTIONS НЕ срабатывает**, никаких CORS-проблем с произвольных хостов. Fallback: `fetch(url, {method, body, keepalive: true})` — тоже без preflight. Весь файл в `try/catch` — ошибка коллектора не валит хост-страницу.
 
-Отправка:
-- `navigator.sendBeacon(url, URLSearchParams)` — form-encoded body. **CORS-safelisted content type → preflight OPTIONS НЕ срабатывает**, никаких CORS-проблем с произвольных хостов.
-- Fallback (`sendBeacon` нет или вернул false): `fetch(url, {method: 'POST', body: URLSearchParams, keepalive: true})`. Тот же form-encoded → preflight тоже не нужен.
-- Весь файл в `try/catch` — любая внутренняя ошибка коллектора не должна валить хост-страницу.
-
-**localStorage недоступен** (private mode, политика хост-сайта) → `visitor_uid` не отправляется → на сервере fallback ключ `md5(ip + ua + час)`.
+localStorage недоступен → `visitor_uid` не отправляется → сервер генерит fallback `md5(ip + ua + час)`.
 
 ## Backend `POST /api/visits`
 
-- Маршрут в `routes/api.php`.
-- `throttle:60,1` per IP — защита от ботов.
-- CSRF не применяется (api группа).
-- CORS — дефолтный `HandleCors` в Laravel 11+ (`paths: ['api/*']`, `allowed_origins: ['*']`) — open by default, ничего публиковать не надо.
-- `StoreVisitRequest` валидирует:
-  - `visitor_uid` — `nullable|uuid`. Если null — на сервере fallback ключ `md5(ip + ua + дата+час)`.
-  - `page_url` — `required|url|max:2048`.
-  - `referrer` — `nullable|url|max:2048`.
-  - `user_agent` — `nullable|string|max:1024`.
-- В контроллере:
-  1. Парсим UA → `device/browser/os` через `UserAgentParser`.
-  2. Извлекаем `host` из `page_url` через `parse_url(..., PHP_URL_HOST)`.
-  3. Берём `ip` из `$request->ip()`.
-  4. `Visit::create([...])`.
-  5. Отвечаем `204 No Content` (sendBeacon ответ не читает; для fetch-fallback — лёгкий статус).
+- `routes/api.php`. Throttle `60,1` per IP.
+- CSRF не применяется (api-группа). CORS open by default (Laravel 11+ `HandleCors`, `paths: ['api/*']`, `allowed_origins: ['*']`).
+- `StoreVisitRequest` валидирует: `visitor_uid` (uuid|nullable), `page_url` (url, max 2048), `referrer` (url|nullable, max 2048), `user_agent` (string|nullable, max 1024).
+- В контроллере: парсим UA через `UserAgentParser` (jenssegers/agent), извлекаем host через `parse_url(..., PHP_URL_HOST)`, пишем `Visit::create([...])`. Ответ `204 No Content`.
 
-## `GET /stats`
+`bootstrap/app.php` → `shouldRenderJsonWhen(fn ($r) => $r->is('api/*') || $r->expectsJson())` — иначе валидация на api-роутах редиректит 302 вместо 422.
 
-Blade-страница под `auth` middleware (`routes/web.php` → группа `auth`). Использует Breeze-овский `<x-app-layout>` и компоненты форм (`<x-text-input>`, `<x-input-label>`, `<x-primary-button>`).
+## Дашборд `GET /stats`
 
-**`/stats` — посадочная страница залогиненного юзера**, заменяет дефолтный Breeze-овский `/dashboard`:
-- Все Breeze-контроллеры (`AuthenticatedSessionController`, `RegisteredUserController`, `EmailVerificationPromptController`, `VerifyEmailController`, `EmailVerificationNotificationController`, `ConfirmablePasswordController`) редиректят на `route('stats')` вместо `route('dashboard')`.
-- В навигации (`resources/views/layouts/navigation.blade.php`) один пункт меню — «Stats» (логотип ведёт туда же). Profile-dropdown справа — это user-меню от Breeze, не основная нав.
-- Маршрут `/dashboard` и view `dashboard.blade.php` удалены. Тесты `tests/Feature/Auth/{Authentication,EmailVerification,Registration}Test` обновлены под новый редирект.
-- Welcome-страница (`/`) для `@auth`-юзера показывает кнопку «Stats».
+Blade-страница под `auth` middleware. Форма-фильтр (GET): `<input type="date">` + `<select name="host">` + submit. Без JS-фреймворка.
 
-Форма-фильтр (GET): `<input type="date" name="date">` + `<select name="host">` (уникальные хосты из таблицы) + submit. Без JS-фреймворка, никакого Alpine.
+Агрегации **в PHP** через Eloquent-коллекции:
+- Bar chart: 24 часа, `COUNT(DISTINCT visitor_uid)` на каждый час. Пустые часы остаются с `0` — полная ось дня.
+- Pie chart: top-10 городов с unique-by-uid группировкой. Если city везде null → подсказка про `DemoVisitsSeeder`.
 
-Агрегации делаются **в PHP** через коллекции, не в SQL:
-- Подняли все строки за выбранный день/хост (`whereDate('created_at', $date)->where('host', $host)->get(['visitor_uid','city','created_at'])`).
-- Bar chart: 24 часа, для каждого `count(unique visitor_uid)` через `Collection::filter+pluck('visitor_uid')->unique()->count()`. Пустые часы остаются с `0` — bar chart показывает полную ось дня.
-- Pie chart: top-10 городов через `groupBy('city')`, отбрасываем nullable city. Если city-данных нет (только real-визиты на localhost) — выводится подсказка про `DemoVisitsSeeder`.
+**Почему агрегация в PHP, а не в SQL** — 24-часовая выборка одного хоста редко превышает несколько тысяч строк. Зато код портируем sqlite ↔ MySQL без `strftime` vs `HOUR()`-развилок.
 
-**Почему агрегация в PHP, а не SQL** — 24-часовая выборка на одном хосте редко превышает несколько тысяч строк, PHP справляется в миллисекундах. Зато код портируем между sqlite (тесты) и MySQL (прод) без `DB::raw('strftime…')` vs `HOUR()`-развилок. На очень больших объёмах легко переехать на SQL-агрегацию.
-
-Данные передаются во view как plain arrays (не Collections — `@json` корректно сериализует), укладываются в `data-labels` / `data-values` каждого `<canvas>`. Инлайн-`<script>` после canvas-ов читает `dataset` и инициализирует Chart.js.
-
-Chart.js — UMD-build с jsDelivr CDN (`chart.js@4.4.0/dist/chart.umd.min.js`). Подключаем `<script>` без `defer`, он же инициализирует графики синхронно ниже. Без `npm i` и без правки Vite-сборки.
+Данные → `data-labels` / `data-values` каждого `<canvas>` → инлайн-`<script>` инициализирует Chart.js (UMD-build с jsDelivr CDN, `chart.js@4.4.0`, без `npm i`).
 
 ## Уникальность визита
 
-`COUNT(DISTINCT visitor_uid)` за час. Если клиент не прислал UID — на сервере fallback `md5(ip + ua + дата+час)`. Зафиксировано как осознанный компромисс.
+`COUNT(DISTINCT visitor_uid)` за час. Если клиент UID не прислал — на сервере fallback `md5(ip + ua + час)`. Осознанный компромисс.
 
-## Демо
+## Geo (отложено)
 
-`DemoVisitsSeeder` создаёт ~200 визитов с разными `city`/`device`/`host`/timestamps. Запускается отдельно: `php artisan db:seed --class=DemoVisitsSeeder` (не в дефолтном `db:seed`). Чтобы было что показать на `/stats` сразу после установки.
+Колонки `country`/`city` в схеме сохранены — этого требует ТЗ («собирать город» + pie-chart по городам). Но IP→geo резолвинг не реализован. Для реальных визитов city=null. Демо страницы статистики обеспечивает `DemoVisitsSeeder` с разнообразными городами.
 
-## Тесты
+**Причина:** на localhost IP всегда `127.0.0.1` → внешний резолвер всё равно отдаёт null. Польза только в проде. Резолвер позже подменяется одной сервис-биндой без правки контроллера.
 
-- `StoreVisitTest`:
-  - POST с валидным payload → запись в БД с распарсенными device/browser/os, host, ip.
-  - Невалидный URL → 422.
-  - Throttle: 61-й запрос в минуту → 429.
-  - Без `visitor_uid` → fallback md5 в `visitor_uid`.
-- `StatsPageTest`:
-  - Гость → 302 на `/login`.
-  - Авторизованный — 200, страница содержит canvas + правильные данные в data-атрибутах для тестовой выборки.
+## Альтернативы
 
-## Альтернативы (для README)
-
-| Альтернатива | Почему не выбрана |
+| Подход | Почему не выбран |
 |---|---|
 | **JSON body вместо URLSearchParams в sendBeacon** | `Content-Type: application/json` — non-simple → preflight OPTIONS перед каждым POST. Лишняя точка отказа на CORS. |
-| **Очередь `dispatch(new RecordVisit(...))`** | Прирост сложности (queue worker и т.д.). Объём ~1 запрос на визит — синхронно нормально. |
-| **Отдельное sqlite-соединение `analytics` для visits** | «Изоляция аналитики» звучит хорошо, но на практике даёт реальные накладные (отдельный конфиг, env-переменная, multi-connection в `RefreshDatabase` — сами наступили на этот баг и откатились) ради умозрительной пользы. ТЗ разрешает MySQL дословно («БД(sqllite или другой)»). Симметричнее с `jokes`. |
+| **Очередь `dispatch(new RecordVisit)`** | Прирост сложности (queue worker и т.д.). Объём ~1 запрос на визит — синхронно нормально. |
+| **Отдельное sqlite-соединение `analytics` для visits** | «Изоляция аналитики» звучит хорошо, но даёт реальные накладные (отдельный конфиг, env-переменная, multi-connection-танцы в `RefreshDatabase`) ради умозрительной пользы. ТЗ разрешает MySQL дословно. Симметричнее с `jokes`. |
 | **ApexCharts / ECharts / D3** | Chart.js — наименьший по весу при достаточной функциональности (bar + pie). |
 | **Парсинг UA на клиенте через `navigator.userAgentData`** | Не во всех браузерах, не для Safari. Серверный парсер надёжнее. |
-| **Реальный geo-резолвинг** (ip-api.com / MaxMind GeoLite2) | На localhost IP всегда `127.0.0.1`, резолвер вернёт null — польза только в проде. Отложили в future scope. Колонки и UI на месте — добавить можно одним сервисом без правки контроллера. |
-| **Cookie вместо localStorage для `visitor_uid`** | Cookie сайта-донора шлётся в КАЖДЫЙ его запрос — лишние байты. Cookie с нашего хоста — third-party, блокируется Safari/Firefox/Chrome. localStorage — first-party, не сериализуется в HTTP, не подвержен third-party-блокам. |
-| **Tracking pixel** (`<img src="...">` вместо JS+sendBeacon) | Без JS невозможно собрать `visitor_uid`. |
+| **Реальный geo-резолвинг** (ip-api.com / MaxMind GeoLite2) | На localhost IP → `127.0.0.1`, резолвер вернёт null. Польза только в проде. UI и колонки на месте — добавить можно одним сервисом без правки контроллера. |
+| **Cookie вместо localStorage для `visitor_uid`** | Cookie сайта-донора шлётся в КАЖДЫЙ его HTTP-запрос — лишние байты. Cookie с нашего хоста — third-party, блокируется Safari/Firefox/Chrome. localStorage — first-party, не сериализуется в HTTP, не подвержен third-party-блокам. |
+| **Tracking pixel** (`<img src="...">`) | Без JS невозможно собрать `visitor_uid`. |
 | **CSRF-cookie + Sanctum stateful** | Усложняет кросс-доменное использование (нужен origin allowlist). API-группа без CSRF проще и достаточно. |
-| **Без `throttle` на `POST /api/visits`** | Endpoint открыт миру (без auth, без CSRF). Без лимита — бот / зацикленный коллектор / DoS забьют таблицу мусором за секунды. `throttle:60,1` per IP — первая дешёвая планка (Laravel-дефолт для api-группы); легитимный трафик с одного IP редко превышает 60 страниц/мин, NAT крупных офисов в случае нужды легко поднимается. |
-| **Throttle по `visitor_uid` вместо IP** | `visitor_uid` генерится клиентом → атакующий выдаёт новый на каждый запрос → throttle бесполезен. IP менее уникален (NAT), но не подделывается тривиально. |
-
-## Definition of Done
-
-### Шаг 3a — БД + бэкенд приёма
-- [x] Таблица `visits` живёт в основной MySQL (без отдельных connection-ов / sqlite-файлов).
-- [x] Миграция `visits` создаёт схему с индексами на `host` / `visitor_uid` / `created_at`.
-- [x] `POST /api/visits` принимает данные, парсит UA через `UserAgentParser` (jenssegers/agent), пишет в БД. Throttle `60,1` включён.
-- [x] CORS на `api/*` открыт (дефолт Laravel) — POST с произвольного origin проходит без preflight.
-- [x] Validation errors на `api/*` отдаются JSON-ом 422 (через `shouldRenderJsonWhen` в `bootstrap/app.php`), а не HTTP 302 redirect.
-- [x] `DemoVisitsSeeder` создаёт ~200 демо-визитов с разными городами, запускается командой.
-- [x] Все тесты зелёные (36/36, 225 assertions).
-- [x] `./vendor/bin/pint --test` без замечаний.
-
-### Шаг 3b — JS-коллектор
-- [x] `public/track.js` — IIFE, без зависимостей, всё в try/catch.
-- [x] Endpoint резолвится автоматически из `document.currentScript.src` (+ fallback по поиску `<script src*=track.js>`).
-- [x] `visitor_uid` — UUID v4 в `localStorage` (`crypto.randomUUID()` + Math.random fallback).
-- [x] Отправка: `sendBeacon(URLSearchParams)` → fetch keepalive fallback.
-- [x] CORS-safe (form-encoded body → preflight не срабатывает).
-- [x] `public/track-demo.html` — локальная страница для smoke-теста.
-
-### Шаг 3c — Страница статистики
-- [x] `GET /stats` за `auth` middleware (`routes/web.php`).
-- [x] Гость → 302 на `/login`.
-- [x] Авторизованный пользователь → 200, видит bar+pie.
-- [x] Bar chart: 24-часовая ось, `COUNT(DISTINCT visitor_uid)` за каждый час; повторные визиты того же UID за час считаются один раз.
-- [x] Pie chart: top-10 городов с unique-by-uid агрегацией; пустое city-data → подсказка про DemoVisitsSeeder.
-- [x] Фильтр: `date` + `host` через GET-параметры.
-- [x] Chart.js по CDN (`chart.js@4.4.0`), без `npm i`, без правки Vite.
-- [x] Тесты (4 шт.): redirect для гостя, 200 для auth, корректность hour-агрегации, корректность city-агрегации, empty-state.
-- [x] **`/stats` сделана посадочной страницей залогиненного юзера** (вместо `/dashboard`); auth-контроллеры и nav-меню обновлены, `/dashboard` route и view удалены, auth-тесты обновлены.
-- [x] Все тесты зелёные (41/41, 241 assertions).
+| **Без `throttle` на `POST /api/visits`** | Endpoint открыт миру (без auth, без CSRF). Без лимита — бот / зацикленный коллектор / DoS забьют таблицу мусором. `throttle:60,1` per IP — первая дешёвая планка (Laravel-дефолт для api-группы). Легитимный трафик с одного IP редко превышает 60 страниц/мин. |
+| **Throttle по `visitor_uid` вместо IP** | UID генерится клиентом → атакующий выдаёт новый на каждый запрос → throttle бесполезен. |
+| **SQL-агрегация (`GROUP BY HOUR(...)`)** | Эффективнее на больших объёмах, но требует driver-aware development (`HOUR()` для MySQL vs `strftime('%H', ...)` для sqlite в тестах). PHP-агрегация на ~1000 строках в день незаметна. |
