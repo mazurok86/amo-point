@@ -10,11 +10,11 @@
 
 ## Стек
 
-Laravel 13 (PHP 8.3+) · Breeze (Blade) · MySQL · Tailwind v4 · Vite · PHPUnit · Pint.
+Laravel 13 (PHP 8.4+) · Breeze (Blade) · MySQL · Tailwind v4 · Vite · PHPUnit · Pint.
 
 ## Развёртывание
 
-Требования: PHP 8.3+, Composer, Node 24 (см. `.nvmrc`), MySQL 8+.
+Требования: PHP 8.4+, Composer, Node 24 (см. `.nvmrc`), MySQL 8+.
 
 ```bash
 git clone https://github.com/mazurok86/amo-point.git
@@ -24,8 +24,6 @@ cp .env.example .env
 composer setup    # install + key:generate + migrate + npm build
 composer dev      # serve + queue + pail + vite → http://127.0.0.1:8000
 ```
-
-Опционально nginx-vhost для `amo-point.local` — конфиг в `nginx/servers/amo-point.conf`.
 
 ## Проверка ТЗ
 
@@ -46,7 +44,7 @@ curl http://127.0.0.1:8000/api/jokes
 - **подключаемый файл**: `<script src="testlist.js">` (можно в `<head>` или перед `</body>`);
 - **сниппет в DevTools Console**: открыть боевую страницу, F12 → Console, вставить весь файл, Enter.
 
-Локальное зеркало для проверки без выхода на внешний хост: `http://amo-point.local/testzz/testlist.html` (byte-identical с боевой за исключением одного добавленного `<script src="testlist.js">`).
+Локальное зеркало для проверки без выхода на внешний хост: `http://your-host/testzz/testlist.html` (byte-identical с боевой за исключением одного добавленного `<script src="testlist.js">`).
 
 ### Задание 3 — счётчик посещений
 
@@ -60,7 +58,7 @@ Drop-in: ноль зависимостей, ноль конфигурации. E
 
 В проде хостьте `track.js` по **HTTPS** — иначе браузер на HTTPS-странице-доноре заблокирует mixed-content.
 
-**Локальный smoke-тест:** `http://amo-point.local/track-demo.html` — страница с подключённым `track.js`. В DevTools → Network должен пройти `POST /api/visits` 204.
+**Локальный smoke-тест:** `http://your-host/track-demo.html` — страница с подключённым `track.js`. В DevTools → Network должен пройти `POST /api/visits` 204.
 
 **Дашборд `/stats`** — посадочная страница после login/register (заменяет дефолтный Breeze-овский `/dashboard`). Чтобы увидеть с данными:
 

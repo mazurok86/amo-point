@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Stack
 
-- Laravel **13.7** on PHP **^8.3** (local: 8.4)
+- Laravel **13.7** on PHP **^8.4** (Symfony 8.x deps require 8.4+ transitively, even though laravel/framework itself still declares ^8.3)
 - **Breeze** (Blade stack) — auth + profile (the original `/dashboard` is removed; `/stats` is the post-login landing page); Tailwind v4 + Alpine.js
 - **MySQL** for app DB (`amo_point` locally); tests use SQLite `:memory:` (see `phpunit.xml`)
 - Vite (`laravel-vite-plugin`) for asset bundling
