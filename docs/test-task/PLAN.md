@@ -13,7 +13,7 @@
 | # | Этап | Файл с деталями | Статус |
 |---|------|-----------------|--------|
 | 1 | Команда `jokes:fetch` + JSON-роут | [01-jokes-command.md](01-jokes-command.md) | ☑ |
-| 2 | JS — динамическая видимость полей | [02-dynamic-fields.md](02-dynamic-fields.md) | ☐ |
+| 2 | JS — динамическая видимость полей | [02-dynamic-fields.md](02-dynamic-fields.md) | ☑ |
 | 3 | Счётчик посещений (бонус) | [03-visit-counter.md](03-visit-counter.md) | ☐ |
 | 4 | README для проверяющего, финальная проверка (`pint`, `test`, `npm run build`) | — | ☐ |
 
