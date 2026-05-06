@@ -2,13 +2,21 @@
 
 namespace Tests\Feature\Visits;
 
+use App\Jobs\ResolveVisitGeo;
 use App\Models\Visit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use Tests\TestCase;
 
 class StoreVisitTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Bus::fake();
+    }
 
     public function test_it_stores_a_visit_with_parsed_ua_and_host(): void
     {
@@ -30,6 +38,11 @@ class StoreVisitTest extends TestCase
         $this->assertSame('iOS', $visit->os);
         $this->assertSame('https://example.com/landing?ref=ad', $visit->page_url);
         $this->assertSame('https://google.com', $visit->referrer);
+
+        Bus::assertDispatched(
+            ResolveVisitGeo::class,
+            fn (ResolveVisitGeo $job) => $job->visitId === $visit->id,
+        );
     }
 
     public function test_it_falls_back_to_md5_when_visitor_uid_is_absent(): void

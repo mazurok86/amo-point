@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreVisitRequest;
+use App\Jobs\ResolveVisitGeo;
 use App\Models\Visit;
 use App\Services\UserAgentParser;
 use Illuminate\Http\Response;
@@ -22,7 +23,7 @@ class VisitController extends Controller
         $visitorUid = $request->input('visitor_uid')
             ?: md5($ip.'|'.$userAgent.'|'.now()->format('Y-m-d-H'));
 
-        Visit::create([
+        $visit = Visit::create([
             'host' => $host,
             'visitor_uid' => $visitorUid,
             'ip' => $ip,
@@ -32,6 +33,8 @@ class VisitController extends Controller
             'page_url' => $pageUrl,
             'referrer' => $request->input('referrer'),
         ]);
+
+        ResolveVisitGeo::dispatch($visit->id);
 
         return response()->noContent();
     }
