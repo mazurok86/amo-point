@@ -17,7 +17,7 @@ Laravel 13 (PHP 8.3+) · Breeze (Blade) · MySQL · Tailwind v4 · Vite · PHPUn
 Требования: PHP 8.3+, Composer, Node 24 (см. `.nvmrc`), MySQL 8+.
 
 ```bash
-git clone git@github.com:mazurok86/amo-point.git
+git clone https://github.com/mazurok86/amo-point.git
 cd amo-point
 mysql -uroot -e 'CREATE DATABASE amo_point CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'
 cp .env.example .env
