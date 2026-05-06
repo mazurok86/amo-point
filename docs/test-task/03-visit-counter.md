@@ -4,7 +4,7 @@
 
 Два компонента:
 1. **JS-коллектор** — `<script async src="/track.js">` подключается к произвольному сайту, собирает данные и отправляет на наш бэкенд.
-2. **Бэкенд** — приём, обогащение (UA-парсинг), хранение в отдельной sqlite-БД, страница статистики под Breeze auth.
+2. **Бэкенд** — приём, обогащение (UA-парсинг), хранение в основной MySQL проекта, страница статистики под Breeze auth.
 
 ## Хранилище
 
@@ -23,21 +23,22 @@
 ## Файлы (полный список)
 
 ```
-public/track.js                                       # JS-коллектор
-app/Models/Visit.php
-app/Http/Controllers/Api/VisitController.php          # POST /api/visits
-app/Http/Controllers/StatsController.php              # GET /stats
-app/Http/Requests/StoreVisitRequest.php
-app/Services/UserAgentParser.php                      # обёртка над jenssegers/agent
-database/migrations/..._create_visits_table.php
-database/factories/VisitFactory.php
-database/seeders/DemoVisitsSeeder.php
-resources/views/stats/index.blade.php
-routes/web.php                                        # /stats (auth) — edit
-routes/api.php                                        # POST /api/visits — edit
-bootstrap/app.php                                     # shouldRenderJsonWhen для api/* — edit
-tests/Feature/Visits/StoreVisitTest.php
-tests/Feature/Visits/StatsPageTest.php
+public/track.js                                       # JS-коллектор (3b)
+public/track-demo.html                                # локальная страница для smoke-теста (3b, не часть деливерабла)
+app/Models/Visit.php                                  # 3a
+app/Http/Controllers/Api/VisitController.php          # POST /api/visits (3a)
+app/Http/Controllers/StatsController.php              # GET /stats (3c)
+app/Http/Requests/StoreVisitRequest.php               # 3a
+app/Services/UserAgentParser.php                      # обёртка над jenssegers/agent (3a)
+database/migrations/..._create_visits_table.php       # 3a
+database/factories/VisitFactory.php                   # 3a
+database/seeders/DemoVisitsSeeder.php                 # 3a
+resources/views/stats/index.blade.php                 # 3c
+routes/web.php                                        # /stats (auth) — edit (3c)
+routes/api.php                                        # POST /api/visits — edit (3a)
+bootstrap/app.php                                     # shouldRenderJsonWhen для api/* — edit (3a)
+tests/Feature/Visits/StoreVisitTest.php               # 3a
+tests/Feature/Visits/StatsPageTest.php                # 3c
 ```
 
 Зависимости (composer):
@@ -48,11 +49,11 @@ JS:
 
 ## План на 3 коммита
 
-| Шаг | Что |
-|---|---|
-| **3a** | БД + бэкенд приёма: `analytics`-connection, миграция, модель, фабрика, `StoreVisitRequest`, `UserAgentParser`, `VisitController`, `POST /api/visits` с throttle, `DemoVisitsSeeder`, тесты |
-| **3b** | JS-коллектор `public/track.js` (sendBeacon + URLSearchParams + UUID v4 в localStorage + try/catch) |
-| **3c** | Страница `/stats` под auth: `StatsController`, Blade с двумя `<canvas>`, Chart.js по CDN, тесты |
+| Шаг | Что | Статус |
+|---|---|---|
+| **3a** | Бэкенд приёма: миграция `visits`, модель/фабрика, `StoreVisitRequest`, `UserAgentParser`, `VisitController`, `POST /api/visits` с throttle, `DemoVisitsSeeder`, тесты | ✅ ef86f6d |
+| **3b** | JS-коллектор `public/track.js` (sendBeacon + URLSearchParams + UUID v4 в localStorage + try/catch) + `track-demo.html` для smoke-теста | ✅ |
+| **3c** | Страница `/stats` под auth: `StatsController`, Blade с двумя `<canvas>`, Chart.js по CDN, тесты | ⌛ |
 
 ## Миграция `visits`
 
@@ -73,14 +74,16 @@ JS:
 
 `updated_at` не нужен — события неизменяемы. Миграция: `$table->timestamp('created_at')->index()`, без `timestamps()`. На модели `public const UPDATED_AT = null` — Eloquent сам управляет `created_at`.
 
-## JS-коллектор `public/track.js` (детали для шага 3b)
+## JS-коллектор `public/track.js`
 
 Подключение: `<script async src="https://our-host/track.js"></script>`. «Drop-in», без зависимостей.
 
+**Endpoint резолвится автоматически** — из `<script src>`-атрибута собственного тега через `document.currentScript`, с fallback по поиску `<script src*=track.js>`. Получается `<script-origin>/api/visits` без необходимости в `data-endpoint` или ручной конфигурации.
+
 Собирает:
-- `visitor_uid` — UUID v4 в `localStorage` (ключ `__amo_visit_uid`, создаётся при первом заходе).
+- `visitor_uid` — UUID v4 в `localStorage` (ключ `__amo_visit_uid`, создаётся при первом заходе). Генератор: `crypto.randomUUID()` для современных браузеров, `Math.random()`-fallback для старых.
 - `page_url` — `location.href`.
-- `referrer` — `document.referrer`.
+- `referrer` — `document.referrer` (опускается если пусто).
 - `user_agent` — `navigator.userAgent`.
 
 Что **не** собираем на клиенте:
@@ -88,10 +91,12 @@ JS:
 
 Отправка:
 - `navigator.sendBeacon(url, URLSearchParams)` — form-encoded body. **CORS-safelisted content type → preflight OPTIONS НЕ срабатывает**, никаких CORS-проблем с произвольных хостов.
-- Fallback (`sendBeacon` нет): `fetch(url, {method: 'POST', body: URLSearchParams, keepalive: true, mode: 'no-cors'})`.
-- Всё в `try/catch` — ошибка трекера не валит хост-страницу.
+- Fallback (`sendBeacon` нет или вернул false): `fetch(url, {method: 'POST', body: URLSearchParams, keepalive: true})`. Тот же form-encoded → preflight тоже не нужен.
+- Весь файл в `try/catch` — любая внутренняя ошибка коллектора не должна валить хост-страницу.
 
-## Backend `POST /api/visits` (детали для шага 3a)
+**localStorage недоступен** (private mode, политика хост-сайта) → `visitor_uid` не отправляется → на сервере fallback ключ `md5(ip + ua + час)`.
+
+## Backend `POST /api/visits`
 
 - Маршрут в `routes/api.php`.
 - `throttle:60,1` per IP — защита от ботов.
@@ -109,7 +114,7 @@ JS:
   4. `Visit::create([...])`.
   5. Отвечаем `204 No Content` (sendBeacon ответ не читает; для fetch-fallback — лёгкий статус).
 
-## `GET /stats` (детали для шага 3c)
+## `GET /stats` (3c — впереди)
 
 Blade-страница под `auth` middleware:
 - Простая форма: `<input type="date" name="date">` + `<select name="host">` (уникальные хосты в БД) + кнопка submit. Без JS-фреймворка.
@@ -145,8 +150,8 @@ Blade-страница под `auth` middleware:
 | Альтернатива | Почему не выбрана |
 |---|---|
 | **JSON body вместо URLSearchParams в sendBeacon** | `Content-Type: application/json` — non-simple → preflight OPTIONS перед каждым POST. Лишняя точка отказа на CORS. |
-| **Очередь `dispatch(new RecordVisit(...))`** | Прирост сложности (queue worker, миграция jobs на analytics-соединение). Объём ~1 запрос на визит — синхронно нормально. |
-| **Хранить в той же MySQL** | Возможно, но ТЗ упоминает sqlite. Изоляция аналитики облегчает экспорт. |
+| **Очередь `dispatch(new RecordVisit(...))`** | Прирост сложности (queue worker и т.д.). Объём ~1 запрос на визит — синхронно нормально. |
+| **Отдельное sqlite-соединение `analytics` для visits** | «Изоляция аналитики» звучит хорошо, но на практике даёт реальные накладные (отдельный конфиг, env-переменная, multi-connection в `RefreshDatabase` — сами наступили на этот баг и откатились) ради умозрительной пользы. ТЗ разрешает MySQL дословно («БД(sqllite или другой)»). Симметричнее с `jokes`. |
 | **ApexCharts / ECharts / D3** | Chart.js — наименьший по весу при достаточной функциональности (bar + pie). |
 | **Парсинг UA на клиенте через `navigator.userAgentData`** | Не во всех браузерах, не для Safari. Серверный парсер надёжнее. |
 | **Реальный geo-резолвинг** (ip-api.com / MaxMind GeoLite2) | На localhost IP всегда `127.0.0.1`, резолвер вернёт null — польза только в проде. Отложили в future scope. Колонки и UI на месте — добавить можно одним сервисом без правки контроллера. |
@@ -169,7 +174,12 @@ Blade-страница под `auth` middleware:
 - [x] `./vendor/bin/pint --test` без замечаний.
 
 ### Шаг 3b — JS-коллектор
-- [ ] `track.js` подключается через `<script async>`, отправляет URLSearchParams через `sendBeacon`, fallback работает.
+- [x] `public/track.js` — IIFE, без зависимостей, всё в try/catch.
+- [x] Endpoint резолвится автоматически из `document.currentScript.src` (+ fallback по поиску `<script src*=track.js>`).
+- [x] `visitor_uid` — UUID v4 в `localStorage` (`crypto.randomUUID()` + Math.random fallback).
+- [x] Отправка: `sendBeacon(URLSearchParams)` → fetch keepalive fallback.
+- [x] CORS-safe (form-encoded body → preflight не срабатывает).
+- [x] `public/track-demo.html` — локальная страница для smoke-теста.
 
 ### Шаг 3c — Страница статистики
 - [ ] `/stats` под `auth`, отображает bar+pie корректно для тестовых данных.

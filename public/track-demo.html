@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>track.js — local demo</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+        code { background: #f3f3f3; padding: 0 0.3em; border-radius: 3px; }
+        kbd { background: #eee; border: 1px solid #ccc; border-radius: 3px; padding: 0 0.3em; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>track.js — локальная проверка</h1>
+    <p>Эта страница подключает <code>track.js</code> через
+        <code>&lt;script async src="/track.js"&gt;</code>. При загрузке отправляется
+        один POST на <code>/api/visits</code>.</p>
+
+    <h2>Как проверить</h2>
+    <ol>
+        <li>Откройте DevTools (<kbd>F12</kbd>) → вкладка <strong>Network</strong>, фильтр <code>visits</code>.</li>
+        <li>Перезагрузите страницу.</li>
+        <li>Должен пройти <code>POST /api/visits</code> со статусом <strong>204 No Content</strong>.</li>
+        <li>Body запроса (Form Data): <code>visitor_uid</code>, <code>page_url</code>,
+            <code>user_agent</code> (+ <code>referrer</code> если есть).</li>
+        <li>В консоли проверьте <code>localStorage.getItem('__amo_visit_uid')</code>
+            — должен быть UUID v4. Перезагрузите страницу — UUID должен сохраниться.</li>
+        <li>В таблице <code>visits</code> должна появиться запись (через <code>php artisan tinker</code> →
+            <code>Visit::latest()->first()</code>).</li>
+    </ol>
+
+    <h2>Очистить визитор</h2>
+    <p>Чтобы получить новый <code>visitor_uid</code>:
+        <button onclick="localStorage.removeItem('__amo_visit_uid'); location.reload();">сбросить и перезагрузить</button>
+    </p>
+
+    <script async src="/track.js"></script>
+</body>
+</html>

@@ -133,13 +133,27 @@ IIFE, без зависимостей, ничего не выкатывает в
 
 ### Задание 3 — счётчик посещений
 
-Делается поэтапно. Сейчас готов backend-приём:
+Делается поэтапно. Готовы шаги 3a (бэкенд приёма) и 3b (JS-коллектор). Шаг 3c — страница статистики `/stats` — впереди.
 
-**`POST /api/visits`** — принимает данные от JS-коллектора (будет на шаге 3b), парсит User-Agent через `jenssegers/agent` (`device`/`browser`/`os`), извлекает `host` из `page_url`, берёт `ip` из `$request->ip()`, пишет запись в таблицу `visits` (та же MySQL, что и приложение). На валидационные ошибки отвечает JSON 422 (через `shouldRenderJsonWhen` в `bootstrap/app.php`).
+**Backend — `POST /api/visits`** принимает данные от JS-коллектора, парсит User-Agent через `jenssegers/agent` (`device`/`browser`/`os`), извлекает `host` из `page_url`, берёт `ip` из `$request->ip()`, пишет запись в таблицу `visits` (та же MySQL, что и приложение). На валидационные ошибки отвечает JSON 422 (через `shouldRenderJsonWhen` в `bootstrap/app.php`).
 
-CORS открыт на `api/*` (дефолт Laravel), JS-коллектор сможет POST-ить с произвольного origin без preflight (`URLSearchParams`-body — CORS-safelisted content type).
+CORS открыт на `api/*` (дефолт Laravel), JS-коллектор POST-ит с произвольного origin без preflight (`URLSearchParams`-body — CORS-safelisted content type).
 
 **Rate limit:** на роут навешен `throttle:60,1` — не более 60 запросов в минуту с одного IP. Это первая дешёвая защита для открытого ingest-endpoint от ботов / зацикленного коллектора / простого DoS. Не панацея (атакующий ротирует IP), но поднимает планку. 60/мин выбрано как Laravel-дефолт для `api`-группы — для легитимного трафика более чем достаточно (живой пользователь редко открывает >60 страниц в минуту), для NAT крупных офисов лимит можно поднять.
+
+**Frontend — [`public/track.js`](public/track.js)**: drop-in tracker.
+
+```html
+<script async src="https://your-host/track.js"></script>
+```
+
+- IIFE, ноль зависимостей, всё в `try/catch` — ошибка в трекере не валит хост-страницу.
+- Endpoint резолвится автоматически из `<script src>` через `document.currentScript` → `<origin>/api/visits`. Не нужен `data-endpoint` атрибут или ручная конфигурация.
+- `visitor_uid` — UUID v4 в `localStorage` (`crypto.randomUUID()` + `Math.random()`-fallback для совсем старых браузеров). Ключ `__amo_visit_uid`. Если localStorage недоступен (private mode / отключён) — на сервере fallback `md5(ip + ua + час)`.
+- Отправка: `navigator.sendBeacon(...)` → fallback `fetch({keepalive: true})`. Тело — `URLSearchParams` (form-encoded, CORS-safe).
+- HTTPS обязателен в проде: если хост-сайт на `https://`, а ваш бэкенд на `http://` — браузер заблокирует mixed-content.
+
+**Локальная проверка**: откройте [`http://amo-point.local/track-demo.html`](public/track-demo.html). Эта страница подключает `track.js`, в DevTools → Network должен пройти `POST /api/visits` со статусом 204. Демо-страница не часть деливерабла, только для smoke-теста.
 
 **Демо-данные** для страницы `/stats` (будет на шаге 3c):
 ```bash
@@ -151,7 +165,7 @@ php artisan db:seed --class=DemoVisitsSeeder   # ~200 визитов с разн
 php artisan test --filter='Visits|StoreVisit'
 ```
 
-Полное проектное описание (схема, альтернативы, шаги 3b/3c): [`docs/test-task/03-visit-counter.md`](docs/test-task/03-visit-counter.md).
+Полное проектное описание (схема, альтернативы, шаг 3c): [`docs/test-task/03-visit-counter.md`](docs/test-task/03-visit-counter.md).
 
 ---
 
