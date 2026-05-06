@@ -58,6 +58,8 @@ This is the **Laravel 11+ minimal skeleton** — there is no `app/Http/Kernel.ph
 
 **Sessions/cache/queue** use the **database** driver by default (see `.env`) — these tables are part of the initial migrations (`0001_01_01_000001_create_cache_table.php`, `0001_01_01_000002_create_jobs_table.php`).
 
+**Visit geo enrichment:** `POST /api/visits` dispatches `App\Jobs\ResolveVisitGeo` to fill `country` / `city` asynchronously. The job calls `App\Services\IpGeoLocator`, which hits `http://ip-api.com/json/{ip}` with a 1s timeout and caches successful lookups for 24h in the default cache store. Private/loopback IPs short-circuit to `[null, null]` without an HTTP call. Without a running queue worker (`composer dev` locally, supervisor `queue:work` in prod) those columns stay `null` — `/stats` filters them out via `WHERE city IS NOT NULL`. Tests fake the bus (`Bus::fake()` / `Http::fake()`) and never hit the network.
+
 ## Dev-only packages worth knowing
 
 - `laravel/pail` — real-time log tailing (`php artisan pail`)
