@@ -68,6 +68,8 @@ php artisan db:seed --class=DemoVisitsSeeder   # ~200 демо-визитов
 
 затем зарегистрироваться через `/register` (без подтверждения email) — страница откроется с графиками (bar по часам, pie по городам).
 
+**Гео-обогащение** (`country` / `city`) делается асинхронно: после `Visit::create` контроллер диспатчит job `ResolveVisitGeo`, который резолвит IP через ip-api.com (1с таймаут, кеш 24ч в дефолтном `Cache::store`, short-circuit для приватных/loopback IP). Колонки заполняются только при поднятом queue worker — `composer dev` стартует `queue:listen` локально; для прода — supervisor + `queue:work`. Без воркера `country`/`city` остаются `null`, дашборд это переживает (`WHERE city IS NOT NULL` в pie-графике). Подробности — в [`docs/test-task/03-visit-counter.md`](docs/test-task/03-visit-counter.md#geo-резолвинг-ip--странагород).
+
 ## Тесты и стиль
 
 ```bash
