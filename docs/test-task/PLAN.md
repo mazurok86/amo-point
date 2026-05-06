@@ -16,7 +16,7 @@
 | 2 | JS — динамическая видимость полей | [02-dynamic-fields.md](02-dynamic-fields.md) | ☑ |
 | 3a | Счётчик: бэкенд приёма (`POST /api/visits`) | [03-visit-counter.md](03-visit-counter.md) | ☑ |
 | 3b | Счётчик: JS-коллектор `public/track.js` | [03-visit-counter.md](03-visit-counter.md) | ☑ |
-| 3c | Счётчик: страница `/stats` под auth | [03-visit-counter.md](03-visit-counter.md) | ☐ |
+| 3c | Счётчик: страница `/stats` под auth | [03-visit-counter.md](03-visit-counter.md) | ☑ |
 | 4 | README для проверяющего, финальная проверка (`pint`, `test`, `npm run build`) | — | ☐ |
 
 Этапы реализуем последовательно. После каждого — рабочий вертикальный срез + тесты, отмечаем галочкой здесь.

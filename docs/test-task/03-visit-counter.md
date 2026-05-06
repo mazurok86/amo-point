@@ -53,7 +53,7 @@ JS:
 |---|---|---|
 | **3a** | Бэкенд приёма: миграция `visits`, модель/фабрика, `StoreVisitRequest`, `UserAgentParser`, `VisitController`, `POST /api/visits` с throttle, `DemoVisitsSeeder`, тесты | ✅ ef86f6d |
 | **3b** | JS-коллектор `public/track.js` (sendBeacon + URLSearchParams + UUID v4 в localStorage + try/catch) + `track-demo.html` для smoke-теста | ✅ |
-| **3c** | Страница `/stats` под auth: `StatsController`, Blade с двумя `<canvas>`, Chart.js по CDN, тесты | ⌛ |
+| **3c** | Страница `/stats` под auth: `StatsController`, Blade с двумя `<canvas>`, Chart.js по CDN, тесты | ✅ |
 
 ## Миграция `visits`
 
@@ -114,17 +114,28 @@ JS:
   4. `Visit::create([...])`.
   5. Отвечаем `204 No Content` (sendBeacon ответ не читает; для fetch-fallback — лёгкий статус).
 
-## `GET /stats` (3c — впереди)
+## `GET /stats`
 
-Blade-страница под `auth` middleware:
-- Простая форма: `<input type="date" name="date">` + `<select name="host">` (уникальные хосты в БД) + кнопка submit. Без JS-фреймворка.
-- Bar chart: уникальные визиты по часам за выбранный день/хост:
-  ```sql
-  SELECT strftime('%H', created_at) AS h, COUNT(DISTINCT visitor_uid) AS c
-  FROM visits WHERE date(created_at) = ? AND host = ? GROUP BY h ORDER BY h
-  ```
-- Pie chart: топ-N городов за тот же период. `LIMIT 10`, остальное в `Other`.
-- Данные кладём в `data-*` атрибуты `<canvas>` → инлайн-`<script>` отдаёт их Chart.js.
+Blade-страница под `auth` middleware (`routes/web.php` → группа `auth`). Использует Breeze-овский `<x-app-layout>` и компоненты форм (`<x-text-input>`, `<x-input-label>`, `<x-primary-button>`).
+
+**`/stats` — посадочная страница залогиненного юзера**, заменяет дефолтный Breeze-овский `/dashboard`:
+- Все Breeze-контроллеры (`AuthenticatedSessionController`, `RegisteredUserController`, `EmailVerificationPromptController`, `VerifyEmailController`, `EmailVerificationNotificationController`, `ConfirmablePasswordController`) редиректят на `route('stats')` вместо `route('dashboard')`.
+- В навигации (`resources/views/layouts/navigation.blade.php`) один пункт меню — «Stats» (логотип ведёт туда же). Profile-dropdown справа — это user-меню от Breeze, не основная нав.
+- Маршрут `/dashboard` и view `dashboard.blade.php` удалены. Тесты `tests/Feature/Auth/{Authentication,EmailVerification,Registration}Test` обновлены под новый редирект.
+- Welcome-страница (`/`) для `@auth`-юзера показывает кнопку «Stats».
+
+Форма-фильтр (GET): `<input type="date" name="date">` + `<select name="host">` (уникальные хосты из таблицы) + submit. Без JS-фреймворка, никакого Alpine.
+
+Агрегации делаются **в PHP** через коллекции, не в SQL:
+- Подняли все строки за выбранный день/хост (`whereDate('created_at', $date)->where('host', $host)->get(['visitor_uid','city','created_at'])`).
+- Bar chart: 24 часа, для каждого `count(unique visitor_uid)` через `Collection::filter+pluck('visitor_uid')->unique()->count()`. Пустые часы остаются с `0` — bar chart показывает полную ось дня.
+- Pie chart: top-10 городов через `groupBy('city')`, отбрасываем nullable city. Если city-данных нет (только real-визиты на localhost) — выводится подсказка про `DemoVisitsSeeder`.
+
+**Почему агрегация в PHP, а не SQL** — 24-часовая выборка на одном хосте редко превышает несколько тысяч строк, PHP справляется в миллисекундах. Зато код портируем между sqlite (тесты) и MySQL (прод) без `DB::raw('strftime…')` vs `HOUR()`-развилок. На очень больших объёмах легко переехать на SQL-агрегацию.
+
+Данные передаются во view как plain arrays (не Collections — `@json` корректно сериализует), укладываются в `data-labels` / `data-values` каждого `<canvas>`. Инлайн-`<script>` после canvas-ов читает `dataset` и инициализирует Chart.js.
+
+Chart.js — UMD-build с jsDelivr CDN (`chart.js@4.4.0/dist/chart.umd.min.js`). Подключаем `<script>` без `defer`, он же инициализирует графики синхронно ниже. Без `npm i` и без правки Vite-сборки.
 
 ## Уникальность визита
 
@@ -182,4 +193,13 @@ Blade-страница под `auth` middleware:
 - [x] `public/track-demo.html` — локальная страница для smoke-теста.
 
 ### Шаг 3c — Страница статистики
-- [ ] `/stats` под `auth`, отображает bar+pie корректно для тестовых данных.
+- [x] `GET /stats` за `auth` middleware (`routes/web.php`).
+- [x] Гость → 302 на `/login`.
+- [x] Авторизованный пользователь → 200, видит bar+pie.
+- [x] Bar chart: 24-часовая ось, `COUNT(DISTINCT visitor_uid)` за каждый час; повторные визиты того же UID за час считаются один раз.
+- [x] Pie chart: top-10 городов с unique-by-uid агрегацией; пустое city-data → подсказка про DemoVisitsSeeder.
+- [x] Фильтр: `date` + `host` через GET-параметры.
+- [x] Chart.js по CDN (`chart.js@4.4.0`), без `npm i`, без правки Vite.
+- [x] Тесты (4 шт.): redirect для гостя, 200 для auth, корректность hour-агрегации, корректность city-агрегации, empty-state.
+- [x] **`/stats` сделана посадочной страницей залогиненного юзера** (вместо `/dashboard`); auth-контроллеры и nav-меню обновлены, `/dashboard` route и view удалены, auth-тесты обновлены.
+- [x] Все тесты зелёные (41/41, 241 assertions).

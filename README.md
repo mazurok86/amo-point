@@ -133,7 +133,7 @@ IIFE, без зависимостей, ничего не выкатывает в
 
 ### Задание 3 — счётчик посещений
 
-Делается поэтапно. Готовы шаги 3a (бэкенд приёма) и 3b (JS-коллектор). Шаг 3c — страница статистики `/stats` — впереди.
+Готов целиком: бэкенд приёма (3a), JS-коллектор (3b) и страница статистики (3c).
 
 **Backend — `POST /api/visits`** принимает данные от JS-коллектора, парсит User-Agent через `jenssegers/agent` (`device`/`browser`/`os`), извлекает `host` из `page_url`, берёт `ip` из `$request->ip()`, пишет запись в таблицу `visits` (та же MySQL, что и приложение). На валидационные ошибки отвечает JSON 422 (через `shouldRenderJsonWhen` в `bootstrap/app.php`).
 
@@ -155,17 +155,28 @@ CORS открыт на `api/*` (дефолт Laravel), JS-коллектор POS
 
 **Локальная проверка**: откройте [`http://amo-point.local/track-demo.html`](public/track-demo.html). Эта страница подключает `track.js`, в DevTools → Network должен пройти `POST /api/visits` со статусом 204. Демо-страница не часть деливерабла, только для smoke-теста.
 
-**Демо-данные** для страницы `/stats` (будет на шаге 3c):
-```bash
-php artisan db:seed --class=DemoVisitsSeeder   # ~200 визитов с разными городами/устройствами
-```
+**Страница статистики `/stats`** — за Breeze auth middleware. **Это и есть посадочная страница после login/register** — стандартный Breeze-овский `/dashboard` удалён, в верхней навигации единственный пункт «Stats» (плюс справа user-dropdown с Profile / Log Out — это user-меню, его Breeze всегда показывает отдельно).
+
+Чтобы увидеть:
+1. Зарегистрироваться через UI (`/register`) — Breeze, без подтверждения email. После сабмита автоматически попадёте на `/stats`.
+2. Засеять демо-данные:
+   ```bash
+   php artisan db:seed --class=DemoVisitsSeeder   # ~200 визитов с разными городами/устройствами
+   ```
+3. Перезагрузить `/stats` (например, `http://amo-point.local/stats`).
+
+На странице — фильтр `date` + `host`, bar chart «уникальные визиты по часам» (полная 24-часовая ось), pie chart «top-10 городов», счётчики total/unique. Графики через Chart.js по CDN (без `npm i`).
+
+**Уникальность визита** — `COUNT(DISTINCT visitor_uid)`, повторные заходы того же UID в течение часа считаются один раз. Если клиент не прислал UID (приватный режим / отключённый localStorage) — на сервере fallback `md5(ip + ua + час)`, чтобы визит всё равно учёлся.
+
+**Real visits → city = null** (geo-резолвинг отложили в future scope, см. секцию «Geo» в [`03-visit-counter.md`](docs/test-task/03-visit-counter.md)). Pie chart на live-данных будет пустой — поэтому есть `DemoVisitsSeeder` с разнообразными городами для демонстрации.
 
 Тесты:
 ```bash
-php artisan test --filter='Visits|StoreVisit'
+php artisan test --filter='Visits|Stats'
 ```
 
-Полное проектное описание (схема, альтернативы, шаг 3c): [`docs/test-task/03-visit-counter.md`](docs/test-task/03-visit-counter.md).
+Полное проектное описание (схема, альтернативы): [`docs/test-task/03-visit-counter.md`](docs/test-task/03-visit-counter.md).
 
 ---
 
